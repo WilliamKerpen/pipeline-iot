@@ -1,160 +1,42 @@
-from pathlib import Path
-
 import pandas as pd
 import streamlit as st
-from sqlalchemy import text
 
-from db_connection import get_engine
-from ingest_csv import Base, ingest_csv
-
-
-def ensure_database_ready() -> None:
-    engine = get_engine()
-    Base.metadata.create_all(bind=engine)
-
-    try:
-        with engine.connect() as connection:
-            count = connection.execute(text("SELECT COUNT(*) FROM temperature_readings")).scalar()
-    except Exception:
-        count = 0
-
-    if count == 0:
-        ingest_csv()
+from services.temperature_service import (
+    compare_periods,
+    filter_by_period,
+    get_temperature_readings,
+    initialize_database,
+    make_month_options,
+)
 
 
-def ensure_views() -> None:
-    engine = get_engine()
-    sql_path = Path(__file__).resolve().parent / "create_views.sql"
-    sql_text = sql_path.read_text(encoding="utf-8")
+@st.cache_resource
+def initialize_application() -> None:
+    """Executa o preparo do banco uma vez por processo do Streamlit."""
+    ingestion_result = initialize_database()
 
-    statements = [statement.strip() for statement in sql_text.split(";") if statement.strip()]
-
-    with engine.begin() as connection:
-        for statement in statements:
-            connection.execute(text(statement))
+    # As consultas em cache só devem ser reaproveitadas após a carga inicial terminar.
+    if ingestion_result and ingestion_result["inserted"]:
+        st.cache_data.clear()
 
 
 @st.cache_data
 def load_temperature_table():
-    engine = get_engine()
-    df = pd.read_sql(
-        "SELECT id, room_id_id, noted_date, temp, out_in FROM temperature_readings ORDER BY noted_date ASC",
-        engine,
-    )
-    df["noted_date"] = pd.to_datetime(df["noted_date"])
-    return df
-
-
-@st.cache_data
-def load_avg_temp_por_sala():
-    engine = get_engine()
-    return pd.read_sql("SELECT * FROM avg_temp_por_sala ORDER BY avg_temp DESC", engine)
-
-
-@st.cache_data
-def load_leituras_por_hora():
-    engine = get_engine()
-    return pd.read_sql("SELECT * FROM leituras_por_hora ORDER BY hora ASC", engine)
-
-
-@st.cache_data
-def load_temp_max_min_por_dia():
-    engine = get_engine()
-    return pd.read_sql("SELECT * FROM temp_max_min_por_dia ORDER BY dia ASC", engine)
-
-
-def filter_by_period(df: pd.DataFrame, option: str, selected_day=None) -> pd.DataFrame:
-    if df.empty:
-        return df
-
-    if option == "Ver tudo":
-        return df
-
-    max_date = df["noted_date"].max()
-
-    if option == "Último mês":
-        start_date = max_date - pd.Timedelta(days=30)
-        return df[df["noted_date"] >= start_date].copy()
-
-    if option == "Última semana":
-        start_date = max_date - pd.Timedelta(days=7)
-        return df[df["noted_date"] >= start_date].copy()
-
-    if option == "Um dia":
-        if selected_day is None:
-            selected_day = max_date.date()
-        return df[df["noted_date"].dt.date == selected_day].copy()
-
-    return df
-
-
-def make_month_options(df: pd.DataFrame):
-    if df.empty:
-        return []
-    months = df["noted_date"].dt.to_period("M").drop_duplicates().sort_values()
-    return [period.to_timestamp().date() for period in months]
+    """Carrega a série de leituras que alimenta os filtros e gráficos."""
+    return get_temperature_readings()
 
 
 def format_brazilian_date(value):
+    """Formata datas para a exibição consistente nos gráficos."""
     return pd.to_datetime(value).strftime("%d-%m-%Y")
-
-
-def compare_periods(df: pd.DataFrame, period_mode: str, selected_a, selected_b):
-    if df.empty or selected_a is None or selected_b is None:
-        return None
-
-    selected_a_ts = pd.to_datetime(selected_a, errors="coerce")
-    selected_b_ts = pd.to_datetime(selected_b, errors="coerce")
-
-    if pd.isna(selected_a_ts) or pd.isna(selected_b_ts):
-        return None
-
-    if period_mode == "Comparar dois meses":
-        start_a = selected_a_ts
-        end_a = (selected_a_ts + pd.offsets.MonthEnd(1))
-        start_b = selected_b_ts
-        end_b = (selected_b_ts + pd.offsets.MonthEnd(1))
-
-        period_a = df[(df["noted_date"] >= start_a) & (df["noted_date"] < end_a)].copy()
-        period_b = df[(df["noted_date"] >= start_b) & (df["noted_date"] < end_b)].copy()
-
-    elif period_mode == "Comparar duas semanas":
-        start_a = selected_a_ts
-        end_a = start_a + pd.Timedelta(days=7)
-        start_b = selected_b_ts
-        end_b = start_b + pd.Timedelta(days=7)
-
-        period_a = df[(df["noted_date"] >= start_a) & (df["noted_date"] < end_a)].copy()
-        period_b = df[(df["noted_date"] >= start_b) & (df["noted_date"] < end_b)].copy()
-
-    else:
-        period_a = df[df["noted_date"].dt.date == selected_a_ts.date()].copy()
-        period_b = df[df["noted_date"].dt.date == selected_b_ts.date()].copy()
-
-    if period_a.empty or period_b.empty:
-        return None
-
-    avg_a = period_a["temp"].mean()
-    avg_b = period_b["temp"].mean()
-    diff = avg_a - avg_b
-
-    return {
-        "avg_a": avg_a,
-        "avg_b": avg_b,
-        "diff": diff,
-        "period_a_df": period_a,
-        "period_b_df": period_b,
-        "period_a_label": selected_a_ts.strftime("%d-%m-%Y") if period_mode in {"Comparar dois dias", "Comparar duas semanas"} else selected_a_ts.strftime("%b/%Y"),
-        "period_b_label": selected_b_ts.strftime("%d-%m-%Y") if period_mode in {"Comparar dois dias", "Comparar duas semanas"} else selected_b_ts.strftime("%b/%Y"),
-    }
 
 
 def main() -> None:
     st.set_page_config(page_title="Dashboard de Temperaturas IoT", layout="wide")
     st.title("Dashboard de Temperaturas IoT")
 
-    ensure_database_ready()
-    ensure_views()
+    # A inicialização fica fora do fluxo de interação para evitar DDL a cada filtro.
+    initialize_application()
 
     temperature_df = load_temperature_table()
     if temperature_df.empty:
@@ -164,6 +46,7 @@ def main() -> None:
     min_date = temperature_df["noted_date"].min().date()
     max_date = temperature_df["noted_date"].max().date()
 
+    # Os filtros laterais definem qual subconjunto alimenta os gráficos principais.
     st.sidebar.header("Filtros")
     period_option = st.sidebar.selectbox(
         "Selecione o período",
@@ -180,6 +63,7 @@ def main() -> None:
         st.warning("Nenhum dado disponível para o filtro selecionado.")
         return
 
+    # A comparação é opcional e usa sempre a série completa para evitar filtros conflitantes.
     st.sidebar.markdown("---")
     st.sidebar.subheader("Comparar temperatura médias dos períodos")
     compare_enabled = st.sidebar.checkbox("Ativar comparação")
@@ -211,6 +95,7 @@ def main() -> None:
                 day_b = st.sidebar.selectbox("Dia B", day_options, index=len(day_options) - 1)
                 comparison_result = compare_periods(temperature_df, compare_mode, day_a, day_b)
 
+    # Exibe a síntese e os gráficos separados somente quando os dois períodos possuem dados.
     if comparison_result:
         diff = comparison_result["diff"]
         if diff > 0:
@@ -239,6 +124,7 @@ def main() -> None:
                 b_daily["dia"] = b_daily["dia"].apply(format_brazilian_date)
                 st.line_chart(b_daily.set_index("dia")["temp"].rename("Temperatura média"))
 
+    # A visão intradiária só faz sentido quando o usuário seleciona um dia específico.
     if period_option == "Um dia":
         st.subheader(f"Resumo do dia {selected_day.strftime('%d-%m-%Y')}")
         col_min, col_max, col_avg = st.columns(3)
@@ -258,6 +144,7 @@ def main() -> None:
         else:
             st.warning("Nenhuma leitura registrada para este dia.")
 
+    # Agregações derivadas do período filtrado para os indicadores gerais do dashboard.
     temp_media_por_dia = filtered_df.assign(dia=filtered_df["noted_date"].dt.date).groupby("dia", as_index=False)["temp"].mean().rename(columns={"dia": "Dia", "temp": "Média da temperatura"})
     leituras_por_dia = filtered_df.assign(dia=filtered_df["noted_date"].dt.date).groupby("dia", as_index=False).size().rename(columns={"size": "Quantidade de leituras", "dia": "Dia"})
 

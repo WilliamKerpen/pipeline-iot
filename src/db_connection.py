@@ -1,11 +1,14 @@
 import os
+from functools import lru_cache
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
 
+@lru_cache(maxsize=1)
 def get_engine() -> Engine:
-    """Cria e retorna um engine SQLAlchemy para PostgreSQL."""
+    """Cria um único engine SQLAlchemy reutilizável para o PostgreSQL."""
+    # As variáveis de ambiente permitem usar Docker e execução local sem alterar o código.
     user = os.getenv("DB_USER", "iot_user")
     password = os.getenv("DB_PASSWORD", "iot_password")
     host = os.getenv("DB_HOST", "localhost")
