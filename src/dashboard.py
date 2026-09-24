@@ -2,7 +2,9 @@ import pandas as pd
 import streamlit as st
 
 from services.temperature_service import (
+    compare_locations_by_day,
     compare_periods,
+    filter_by_location,
     filter_by_period,
     get_temperature_readings,
     initialize_database,
@@ -31,6 +33,9 @@ def format_brazilian_date(value):
     return pd.to_datetime(value).strftime("%d-%m-%Y")
 
 
+LOCATION_LABELS = {"In": "Dentro da sala", "Out": "Fora da sala"}
+
+
 def main() -> None:
     st.set_page_config(page_title="Dashboard de Temperaturas IoT", layout="wide")
     st.title("Dashboard de Temperaturas IoT")
@@ -48,6 +53,13 @@ def main() -> None:
 
     # Os filtros laterais definem qual subconjunto alimenta os gráficos principais.
     st.sidebar.header("Filtros")
+    location_options = [location for location in LOCATION_LABELS if location in temperature_df["out_in"].unique()]
+    selected_locations = st.sidebar.multiselect(
+        "Origem da leitura",
+        location_options,
+        default=location_options,
+        format_func=lambda location: LOCATION_LABELS[location],
+    )
     period_option = st.sidebar.selectbox(
         "Selecione o período",
         ["Ver tudo", "Último mês", "Última semana", "Um dia"],
@@ -57,7 +69,8 @@ def main() -> None:
     if period_option == "Um dia":
         selected_day = st.sidebar.date_input("Dia específico", value=max_date, min_value=min_date, max_value=max_date)
 
-    filtered_df = filter_by_period(temperature_df, period_option, selected_day)
+    filtered_df = filter_by_location(temperature_df, selected_locations)
+    filtered_df = filter_by_period(filtered_df, period_option, selected_day)
 
     if filtered_df.empty:
         st.warning("Nenhum dado disponível para o filtro selecionado.")
@@ -94,6 +107,31 @@ def main() -> None:
                 day_a = st.sidebar.selectbox("Dia A", day_options, index=0)
                 day_b = st.sidebar.selectbox("Dia B", day_options, index=len(day_options) - 1)
                 comparison_result = compare_periods(temperature_df, compare_mode, day_a, day_b)
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Dentro x fora da sala")
+    location_comparison_enabled = st.sidebar.checkbox("Comparar em um dia")
+    location_comparison_day = None
+    if location_comparison_enabled:
+        comparable_days = (
+            temperature_df.assign(dia=temperature_df["noted_date"].dt.date)
+            .groupby("dia")["out_in"]
+            .nunique()
+            .loc[lambda count: count >= 2]
+            .index.tolist()
+        )
+        if comparable_days:
+            default_day = max(comparable_days)
+            selected_location_day = st.sidebar.date_input(
+                "Dia para comparação",
+                value=default_day,
+                min_value=min(comparable_days),
+                max_value=max(comparable_days),
+            )
+            if selected_location_day in comparable_days:
+                location_comparison_day = selected_location_day
+            else:
+                st.sidebar.caption("Selecione um dia com leituras de dentro e fora da sala.")
 
     # Exibe a síntese e os gráficos separados somente quando os dois períodos possuem dados.
     if comparison_result:
@@ -143,6 +181,42 @@ def main() -> None:
             st.line_chart(hourly.set_index("hora")["temp"].rename("Temperatura (°C)"))
         else:
             st.warning("Nenhuma leitura registrada para este dia.")
+
+    if location_comparison_enabled and location_comparison_day:
+        comparison_day = compare_locations_by_day(temperature_df, location_comparison_day)
+        if comparison_day is None:
+            st.info("Não há dados suficientes para comparar dentro e fora da sala neste dia.")
+        else:
+            inside_avg = comparison_day["inside_avg"]
+            outside_avg = comparison_day["outside_avg"]
+            st.subheader(f"Comparação dentro x fora — {comparison_day['day'].strftime('%d-%m-%Y')}")
+
+            inside_col, outside_col, difference_col = st.columns(3)
+            inside_col.metric(
+                "Média dentro da sala",
+                f"{inside_avg:.2f}°C" if pd.notna(inside_avg) else "Sem dados",
+            )
+            outside_col.metric(
+                "Média fora da sala",
+                f"{outside_avg:.2f}°C" if pd.notna(outside_avg) else "Sem dados",
+            )
+            difference_col.metric(
+                "Diferença (fora − dentro)",
+                f"{comparison_day['diff']:.2f}°C" if pd.notna(comparison_day['diff']) else "Sem dados",
+            )
+
+            day_readings = temperature_df[temperature_df["noted_date"].dt.date == comparison_day["day"]].copy()
+            hourly_location = (
+                day_readings.assign(hora=day_readings["noted_date"].dt.strftime("%H:%M"))
+                .groupby(["hora", "out_in"], as_index=False)["temp"]
+                .mean()
+                .pivot(index="hora", columns="out_in", values="temp")
+                .rename(columns=LOCATION_LABELS)
+            )
+            if not hourly_location.empty:
+                st.line_chart(hourly_location.rename_axis(None, axis="columns"))
+            else:
+                st.warning("Nenhuma série horária disponível para esse dia.")
 
     # Agregações derivadas do período filtrado para os indicadores gerais do dashboard.
     temp_media_por_dia = filtered_df.assign(dia=filtered_df["noted_date"].dt.date).groupby("dia", as_index=False)["temp"].mean().rename(columns={"dia": "Dia", "temp": "Média da temperatura"})

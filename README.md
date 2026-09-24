@@ -1,6 +1,7 @@
 # Pipeline IoT — Monitoramento de Temperatura
 
-Pipeline de dados educacional para leituras de sensores IoT. O projeto importa um CSV, normaliza e persiste as leituras no PostgreSQL e disponibiliza um dashboard Streamlit para exploração temporal das temperaturas.
+Este projeto foi criado como parte da entrega para obtencao de nota na matéria de Disruptive Architectures IOT Big Data e IA pela faculdade UNIFecaf
+É um Pipeline de dados educacional para leituras de sensores IoT. O projeto importa um CSV, normaliza e persiste as leituras no PostgreSQL e disponibiliza um dashboard Streamlit para exploração temporal das temperaturas.
 
 O conjunto de dados usado no exemplo é o [Temperature Readings: IoT Devices](https://www.kaggle.com/datasets/atulanandjha/temperature-readings-iot-devices).
 
@@ -54,7 +55,7 @@ Pipeline-IOT/
 
 ## Execução com Docker
 
-Opcionalmente, copie `.env.example` para `.env` e altere as credenciais. Não versione esse arquivo.
+Opcionalmente, copie `.env.example` para `.env` e altere as credenciais (nao necessario agora, se for utilizar em producao ou em um projeto real crie o env e instacie no codigo)
 
 ```bash
 docker compose up --build
@@ -96,6 +97,7 @@ streamlit run src/dashboard.py
 
 ## Funcionalidades
 
+- Filtro por leitura dentro e fora da sala
 - Filtros para toda a base, último mês, última semana e um dia específico.
 - Médias, máximas, mínimas e volume de leituras por dia.
 - Resumo e série intradiária para um único dia.
@@ -129,12 +131,11 @@ O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) executa lint e
 
 ## Screenshots
 
-Os screenshots serão adicionados posteriormente. Quando estiverem prontos, salve-os, por exemplo, em `docs/images/` e substitua os links abaixo:
-
 ```markdown
 ![Dashboard principal](docs/images/dashboard-principal.png)
 ![Comparação entre períodos](docs/images/comparacao-periodos.png)
 ![Filtro por dia](docs/images/filtro-dia.png)
+![Comparacao dentro e fora](docs/images/dentro-fora.png)
 ```
 
 ## Observações de desenvolvimento

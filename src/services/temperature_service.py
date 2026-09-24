@@ -64,6 +64,46 @@ def get_temperature_readings() -> pd.DataFrame:
     return temperature_repository.get_all_readings()
 
 
+def filter_by_location(dataframe: pd.DataFrame, locations: list[str] | None) -> pd.DataFrame:
+    """Filtra leituras pela origem interna, externa ou ambas."""
+    if dataframe.empty or not locations:
+        return dataframe.iloc[0:0].copy() if not locations else dataframe
+    return dataframe[dataframe["out_in"].isin(locations)].copy()
+
+
+def compare_locations_by_day(dataframe: pd.DataFrame, selected_day) -> dict | None:
+    """Compara as médias de temperatura de sensores internos e externos em um dia específico."""
+    if dataframe.empty or selected_day is None:
+        return None
+
+    day = pd.to_datetime(selected_day, errors="coerce")
+    if pd.isna(day):
+        return None
+
+    day_readings = dataframe[dataframe["noted_date"].dt.date == day.date()].copy()
+    if day_readings.empty:
+        return None
+
+    inside_readings = day_readings[day_readings["out_in"].astype(str).str.strip() == "In"].copy()
+    outside_readings = day_readings[day_readings["out_in"].astype(str).str.strip() == "Out"].copy()
+
+    if inside_readings.empty and outside_readings.empty:
+        return None
+
+    inside_avg = inside_readings["temp"].mean() if not inside_readings.empty else float("nan")
+    outside_avg = outside_readings["temp"].mean() if not outside_readings.empty else float("nan")
+    diff = outside_avg - inside_avg if pd.notna(inside_avg) and pd.notna(outside_avg) else float("nan")
+
+    return {
+        "day": day.date(),
+        "inside_avg": inside_avg,
+        "outside_avg": outside_avg,
+        "diff": diff,
+        "inside_df": inside_readings,
+        "outside_df": outside_readings,
+    }
+
+
 def filter_by_period(dataframe: pd.DataFrame, option: str, selected_day=None) -> pd.DataFrame:
     """Aplica à série o período escolhido pelo usuário."""
     if dataframe.empty or option == "Ver tudo":

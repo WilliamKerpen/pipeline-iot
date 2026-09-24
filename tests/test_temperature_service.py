@@ -5,7 +5,9 @@ from datetime import date
 import pandas as pd
 
 from services.temperature_service import (
+    compare_locations_by_day,
     compare_periods,
+    filter_by_location,
     filter_by_period,
     make_month_options,
     normalize_columns,
@@ -36,6 +38,14 @@ def test_filter_by_period_returns_last_week_from_most_recent_reading():
     assert result["id"].tolist() == ["b", "c", "d"]
 
 
+def test_filter_by_location_keeps_only_selected_origin():
+    dataframe = sample_readings().assign(out_in=["In", "Out", "In", "Out"])
+
+    result = filter_by_location(dataframe, ["In"])
+
+    assert result["id"].tolist() == ["a", "c"]
+
+
 def test_make_month_options_returns_chronological_month_starts():
     assert make_month_options(sample_readings()) == [date(2024, 1, 1), date(2024, 2, 1)]
 
@@ -47,3 +57,28 @@ def test_compare_periods_compares_two_months():
     assert result["avg_a"] == 21.0
     assert result["avg_b"] == 25.0
     assert result["diff"] == -4.0
+
+
+def test_compare_locations_by_day_compares_inside_and_outside_readings():
+    dataframe = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d"],
+            "noted_date": pd.to_datetime(
+                [
+                    "2024-01-01 09:00",
+                    "2024-01-01 10:00",
+                    "2024-01-01 11:00",
+                    "2024-01-01 12:00",
+                ]
+            ),
+            "temp": [20.0, 18.0, 24.0, 22.0],
+            "out_in": ["In", "In", "Out", "Out"],
+        }
+    )
+
+    result = compare_locations_by_day(dataframe, date(2024, 1, 1))
+
+    assert result is not None
+    assert result["inside_avg"] == 19.0
+    assert result["outside_avg"] == 23.0
+    assert result["diff"] == 4.0
