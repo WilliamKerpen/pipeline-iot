@@ -113,6 +113,20 @@ python src/ingest_csv.py
 
 As views são recriadas quando o dashboard inicia. No Docker, reinicie o serviço `dashboard` após uma carga manual para renovar a interface.
 
+## Testes e CI
+
+O projeto usa `pytest` para testes e `ruff` para lint. Instale as dependências de desenvolvimento e execute:
+
+```powershell
+pip install -r requirements-dev.txt
+ruff check .
+pytest -s
+```
+
+Os testes de integração usam um PostgreSQL real, limpam a tabela antes e depois de cada caso e exibem no terminal a última leitura persistida. Eles também verificam o caminho usado pelo dashboard (`dashboard` → `service` → `repository` → PostgreSQL), confirmando que a tabela carregada pela interface recebe dados do banco.
+
+O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) executa lint e toda a suíte a cada pull request e push para `main`, com um serviço PostgreSQL 15 isolado.
+
 ## Screenshots
 
 Os screenshots serão adicionados posteriormente. Quando estiverem prontos, salve-os, por exemplo, em `docs/images/` e substitua os links abaixo:

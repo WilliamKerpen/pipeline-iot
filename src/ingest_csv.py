@@ -1,8 +1,7 @@
 """Ponto de entrada compatível para executar a ingestão pelo terminal."""
 
-from models import Base, TemperatureReading
 from repositories.temperature_repository import create_schema
-from services.temperature_service import ingest_csv, load_temperature_data, normalize_columns
+from services.temperature_service import ingest_csv
 
 
 def create_table_if_not_exists() -> None:

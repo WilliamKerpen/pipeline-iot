@@ -6,7 +6,6 @@ import pandas as pd
 
 from repositories import temperature_repository
 
-
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 CSV_PATH = BASE_DIR / "data" / "temperature_readings.csv"
 VIEWS_PATH = BASE_DIR / "src" / "create_views.sql"
